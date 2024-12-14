@@ -8,7 +8,8 @@ import argparse
 from kaggle.api.kaggle_api_extended import KaggleApi
 from huggingface_hub import hf_hub_download
 from config import KAGGLE_DATASET, HF_DATASET, DOWNLOAD_DIR, LOG_FILE, HF_TOKEN
-
+from requests.exceptions import HTTPError, ConnectionError
+from kaggle.rest import ApiException
 
 # Index files for the GTZAN dataset
 ADDITIONAL_FILES = [
@@ -17,7 +18,6 @@ ADDITIONAL_FILES = [
     "https://raw.githubusercontent.com/coreyker/dnn-mgr/master/gtzan/test_filtered.txt"
 ]
 
-
 def setup_logging(log_file):
     """Set up logging configuration."""
     logging.basicConfig(
@@ -25,7 +25,6 @@ def setup_logging(log_file):
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s"
     )
-
 
 def download_from_kaggle(dataset=KAGGLE_DATASET, download_dir=DOWNLOAD_DIR, unzip=True):
     """Download dataset from Kaggle."""
@@ -37,9 +36,15 @@ def download_from_kaggle(dataset=KAGGLE_DATASET, download_dir=DOWNLOAD_DIR, unzi
         api.dataset_download_files(dataset, path=download_dir, unzip=unzip)
         move_and_cleanup_kaggle_download(download_dir)
         logging.info("Successfully downloaded and organized dataset from Kaggle.")
-    except Exception as e:
-        raise RuntimeError(f"Kaggle download failed: {e}")
-
+    except ApiException as api_error:
+        logging.error(f"Kaggle API error: {api_error}")
+        raise RuntimeError(f"Kaggle API error: {api_error}")
+    except KeyboardInterrupt:
+        logging.error("Kaggle download interrupted by user.")
+        sys.exit(1)
+    except Exception as general_error:
+        logging.error(f"Unexpected error during Kaggle download: {general_error}")
+        raise RuntimeError(f"Kaggle download encountered an unexpected error: {general_error}")
 
 def move_and_cleanup_kaggle_download(download_dir):
     """Move and clean up Kaggle download directory."""
@@ -55,7 +60,6 @@ def move_and_cleanup_kaggle_download(download_dir):
         logging.info(f"Deleting the now-empty {data_dir} directory")
         shutil.rmtree(data_dir)
 
-
 def download_from_huggingface(dataset=HF_DATASET, download_dir=DOWNLOAD_DIR, filename="genres.tar.gz", token=HF_TOKEN):
     """Download dataset from Hugging Face."""
     logging.info("Attempting to download dataset from Hugging Face.")
@@ -70,9 +74,18 @@ def download_from_huggingface(dataset=HF_DATASET, download_dir=DOWNLOAD_DIR, fil
         )
         move_and_extract_hf_download(download_dir, filename)
         logging.info("Successfully downloaded and organized dataset from Hugging Face.")
-    except Exception as e:
-        raise RuntimeError(f"Hugging Face download failed: {e}")
-
+    except HTTPError as http_error:
+        logging.error(f"HTTP error during Hugging Face download: {http_error}")
+        raise RuntimeError(f"HTTP error during Hugging Face download: {http_error}")
+    except ConnectionError as connection_error:
+        logging.error(f"Connection error during Hugging Face download: {connection_error}")
+        raise RuntimeError(f"Connection error during Hugging Face download: {connection_error}")
+    except KeyboardInterrupt:
+        logging.error("Hugging Face download interrupted by user.")
+        sys.exit(1)
+    except Exception as general_error:
+        logging.error(f"Unexpected error during Hugging Face download: {general_error}")
+        raise RuntimeError(f"Hugging Face download encountered an unexpected error: {general_error}")
 
 def move_and_extract_hf_download(download_dir, filename="genres.tar.gz"):
     """Move and extract the downloaded file from Hugging Face."""
@@ -91,9 +104,9 @@ def move_and_extract_hf_download(download_dir, filename="genres.tar.gz"):
 
         os.remove(target_path)
         logging.info(f"Removed archive file {target_path} after extraction.")
-    except Exception as e:
-        raise RuntimeError(f"Failed to extract {target_path}: {e}")
-
+    except tarfile.TarError as tar_error:
+        logging.error(f"Failed to extract {target_path}: {tar_error}")
+        raise RuntimeError(f"Failed to extract {target_path}: {tar_error}")
 
 def download_index_files(download_dir=DOWNLOAD_DIR, index_files=ADDITIONAL_FILES):
     """Download additional index files."""
@@ -107,9 +120,18 @@ def download_index_files(download_dir=DOWNLOAD_DIR, index_files=ADDITIONAL_FILES
             with open(filename, 'wb') as f:
                 f.write(response.content)
             logging.info(f"Downloaded {filename}")
-        except Exception as e:
-            raise RuntimeError(f"Failed to download index file {url}: {e}")
-
+        except HTTPError as http_error:
+            logging.error(f"HTTP error during index file download {url}: {http_error}")
+            raise RuntimeError(f"HTTP error during index file download {url}: {http_error}")
+        except ConnectionError as connection_error:
+            logging.error(f"Connection error during index file download {url}: {connection_error}")
+            raise RuntimeError(f"Connection error during index file download {url}: {connection_error}")
+        except KeyboardInterrupt:
+            logging.error("Index file download interrupted by user.")
+            sys.exit(1)
+        except Exception as general_error:
+            logging.error(f"Unexpected error during index file download {url}: {general_error}")
+            raise RuntimeError(f"Unexpected error during index file download {url}: {general_error}")
 
 def main():
     """Main function to coordinate downloads."""
@@ -126,6 +148,7 @@ def main():
 
     try:
         # Try downloading from Kaggle first
+        logging.info("Starting Kaggle download attempt.")
         download_from_kaggle(dataset=args.kaggle_dataset, download_dir=args.download_dir)
         download_index_files(download_dir=args.download_dir)
         sys.exit(0)
@@ -134,6 +157,7 @@ def main():
 
     try:
         # If Kaggle download fails, try Hugging Face
+        logging.info("Starting Hugging Face download attempt.")
         download_from_huggingface(
             dataset=args.hf_dataset,
             download_dir=args.download_dir,
@@ -146,7 +170,6 @@ def main():
 
     logging.error("Failed to download dataset from any source.")
     sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
